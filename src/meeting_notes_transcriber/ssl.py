@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import ssl
 import threading
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -88,13 +89,23 @@ def _build_local_ssl_state(detail: str) -> SSLState:
 
 
 def _build_ssl_detail(base_detail: str) -> str:
+    if _should_relax_x509_strict():
+        return f"{base_detail}; OpenSSL strict X.509 checks relaxed for enterprise CA compatibility{_hf_xet_detail()}"
+    return f"{base_detail}{_hf_xet_detail()}"
+
+
+def _hf_xet_detail() -> str:
     if _should_disable_hf_xet():
-        return f"{base_detail}; huggingface hub xet downloads disabled"
-    return base_detail
+        return "; huggingface hub xet downloads disabled"
+    return ""
 
 
 def _should_disable_hf_xet() -> bool:
     return os.getenv("MEETING_NOTES_ALLOW_HF_XET", "").strip().lower() not in {"1", "true", "yes"}
+
+
+def _should_relax_x509_strict() -> bool:
+    return os.getenv("MEETING_NOTES_KEEP_X509_STRICT", "").strip().lower() not in {"1", "true", "yes"}
 
 
 def _configure_huggingface_networking() -> None:
@@ -119,12 +130,25 @@ def _configure_huggingface_networking() -> None:
 
 
 def create_secure_httpx_client(**kwargs: Any) -> httpx.Client:
-    state = ensure_enterprise_ssl()
-    kwargs.setdefault("verify", state.requests_ca_bundle or state.ssl_cert_file or True)
+    kwargs.setdefault("verify", create_secure_ssl_context())
     return httpx.Client(**kwargs)
 
 
 def create_secure_async_httpx_client(**kwargs: Any) -> httpx.AsyncClient:
-    state = ensure_enterprise_ssl()
-    kwargs.setdefault("verify", state.requests_ca_bundle or state.ssl_cert_file or True)
+    kwargs.setdefault("verify", create_secure_ssl_context())
     return httpx.AsyncClient(**kwargs)
+
+
+def create_secure_ssl_context() -> ssl.SSLContext:
+    state = ensure_enterprise_ssl()
+    cafile = state.requests_ca_bundle or state.ssl_cert_file
+    context = ssl.create_default_context(cafile=cafile) if cafile else ssl.create_default_context()
+
+    # Some enterprise CA bundles fail OpenSSL's strict RFC validation in Python 3.13+ even though
+    # they are otherwise trusted in the corporate environment. Keep verification enabled while
+    # relaxing only the strict X.509 flag unless explicitly opted out.
+    strict_flag = getattr(ssl, "VERIFY_X509_STRICT", 0)
+    if strict_flag and _should_relax_x509_strict():
+        context.verify_flags &= ~strict_flag
+
+    return context
