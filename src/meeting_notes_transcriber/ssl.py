@@ -45,10 +45,11 @@ def ensure_enterprise_ssl() -> SSLState:
 
         try:
             rbc_security.enable_certs()
+            _configure_huggingface_networking()
             _SSL_STATE = SSLState(
                 enabled=True,
                 provider="rbc_security",
-                detail="enterprise certificates enabled",
+                detail=_build_ssl_detail("enterprise certificates enabled"),
                 ssl_cert_file=os.getenv("SSL_CERT_FILE"),
                 requests_ca_bundle=os.getenv("REQUESTS_CA_BUNDLE"),
             )
@@ -76,13 +77,45 @@ def _build_local_ssl_state(detail: str) -> SSLState:
     except Exception as exc:  # pragma: no cover - certifi is expected but optional
         logger.warning("Local certifi bundle unavailable; relying on the system certificate store: %s", exc)
 
+    _configure_huggingface_networking()
     return SSLState(
         enabled=True,
         provider=provider,
-        detail=detail,
+        detail=_build_ssl_detail(detail),
         ssl_cert_file=os.getenv("SSL_CERT_FILE"),
         requests_ca_bundle=os.getenv("REQUESTS_CA_BUNDLE"),
     )
+
+
+def _build_ssl_detail(base_detail: str) -> str:
+    if _should_disable_hf_xet():
+        return f"{base_detail}; huggingface hub xet downloads disabled"
+    return base_detail
+
+
+def _should_disable_hf_xet() -> bool:
+    return os.getenv("MEETING_NOTES_ALLOW_HF_XET", "").strip().lower() not in {"1", "true", "yes"}
+
+
+def _configure_huggingface_networking() -> None:
+    try:
+        from huggingface_hub import set_async_client_factory, set_client_factory
+        from huggingface_hub import constants as hf_constants
+    except Exception:
+        return
+
+    set_client_factory(lambda: create_secure_httpx_client())
+    set_async_client_factory(lambda: create_secure_async_httpx_client())
+
+    disable_xet = _should_disable_hf_xet()
+    os.environ["HF_HUB_DISABLE_XET"] = "1" if disable_xet else "0"
+    try:
+        hf_constants.HF_HUB_DISABLE_XET = disable_xet
+    except Exception:
+        pass
+
+    if disable_xet:
+        logger.info("Configured huggingface_hub to use Python HTTP downloads with enterprise SSL; hf_xet disabled.")
 
 
 def create_secure_httpx_client(**kwargs: Any) -> httpx.Client:
