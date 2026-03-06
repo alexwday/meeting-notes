@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meeting Notes Transcriber</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb bg-orb-one"></div>
+    <div class="bg-orb bg-orb-two"></div>
+    <main class="shell">
+      <section class="hero reveal">
+        <div class="hero-copy">
+          <p class="eyebrow">Internal transcription workspace</p>
+          <h1>Meeting Notes</h1>
+          <p class="lede">Upload a recording, run transcription, and review the output files.</p>
+        </div>
+        <div class="hero-meta" aria-label="Workspace summary">
+          <span class="hero-chip">Local processing</span>
+          <span class="hero-chip">Speaker diarization</span>
+          <span class="hero-chip">TXT / SRT / VTT / JSON</span>
+        </div>
+      </section>
+
+      <details class="panel panel-collapsible reveal delay-1">
+        <summary class="panel-header collapse-summary">
+          <div>
+            <p class="kicker">System</p>
+            <h2>Runtime profile</h2>
+          </div>
+          <div class="collapse-actions">
+            <span id="ssl-badge" class="badge">Loading</span>
+            <span class="collapse-hint">Details</span>
+          </div>
+        </summary>
+        <div class="collapsible-body">
+          <div id="system-grid" class="system-grid"></div>
+        </div>
+      </details>
+
+      <section class="panel reveal delay-2">
+        <div class="panel-header">
+          <div>
+            <p class="kicker">Workflow</p>
+            <h2>New transcription job</h2>
+          </div>
+        </div>
+        <form id="transcription-form" class="transcription-form">
+          <input type="hidden" name="hf_token" />
+
+          <label class="field file-field">
+            <span class="field-label">
+              <span>Audio or video file</span>
+              <button type="button" class="help-button" data-help-key="file" aria-label="Explain audio or video file setting">?</button>
+            </span>
+            <input type="file" name="file" required />
+          </label>
+
+          <div class="default-stack">
+            <p class="default-title">Default profile</p>
+            <p class="form-note">
+              Optimized for English meeting recordings: Distil-Whisper Large v3, speaker diarization on, silence trim on.
+            </p>
+          </div>
+
+          <details class="advanced-panel">
+            <summary class="advanced-summary">Advanced settings</summary>
+            <div class="advanced-content">
+              <div class="field-grid">
+                <label class="field">
+                  <span class="field-label">
+                    <span>Model</span>
+                    <button type="button" class="help-button" data-help-key="model" aria-label="Explain model setting">?</button>
+                  </span>
+                  <select name="model_key" id="model-key"></select>
+                </label>
+                <label class="field" id="custom-model-field" hidden>
+                  <span class="field-label">
+                    <span>Custom model id or local path</span>
+                    <button type="button" class="help-button" data-help-key="custom_model" aria-label="Explain custom model setting">?</button>
+                  </span>
+                  <input type="text" name="custom_model_id" placeholder="username/model-ct2" />
+                </label>
+                <label class="field">
+                  <span class="field-label">
+                    <span>Task</span>
+                    <button type="button" class="help-button" data-help-key="task" aria-label="Explain task setting">?</button>
+                  </span>
+                  <select name="task" id="task-select">
+                    <option value="transcribe">Transcribe</option>
+                    <option value="translate">Translate to English</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">
+                    <span>Language</span>
+                    <button type="button" class="help-button" data-help-key="language" aria-label="Explain language setting">?</button>
+                  </span>
+                  <input type="text" name="language" value="en" placeholder="en" />
+                </label>
+                <label class="field">
+                  <span class="field-label">
+                    <span>Beam size</span>
+                    <button type="button" class="help-button" data-help-key="beam_size" aria-label="Explain beam size setting">?</button>
+                  </span>
+                  <input type="number" name="beam_size" min="1" max="10" value="5" />
+                </label>
+                <label class="field">
+                  <span class="field-label">
+                    <span>Temperature</span>
+                    <button type="button" class="help-button" data-help-key="temperature" aria-label="Explain temperature setting">?</button>
+                  </span>
+                  <input type="number" name="temperature" min="0" max="1" step="0.1" value="0.0" />
+                </label>
+              </div>
+
+              <label class="field">
+                <span class="field-label">
+                  <span>Initial prompt</span>
+                  <button type="button" class="help-button" data-help-key="initial_prompt" aria-label="Explain initial prompt setting">?</button>
+                </span>
+                <textarea
+                  name="initial_prompt"
+                  rows="3"
+                  placeholder="Optional vocabulary or context, such as attendee names or product names."
+                ></textarea>
+              </label>
+
+              <div class="toggle-row">
+                <div class="toggle-help">
+                  <label class="toggle">
+                    <input type="checkbox" name="vad_filter" checked />
+                    <span>Use VAD to trim silence</span>
+                  </label>
+                  <button type="button" class="help-button" data-help-key="vad_filter" aria-label="Explain VAD setting">?</button>
+                </div>
+                <div class="toggle-help">
+                  <label class="toggle">
+                    <input type="checkbox" name="enable_diarization" id="enable-diarization" checked />
+                    <span>Enable speaker diarization</span>
+                  </label>
+                  <button type="button" class="help-button" data-help-key="enable_diarization" aria-label="Explain speaker diarization setting">?</button>
+                </div>
+                <div class="toggle-help">
+                  <label class="toggle">
+                    <input type="checkbox" name="word_timestamps" />
+                    <span>Include word timestamps</span>
+                  </label>
+                  <button type="button" class="help-button" data-help-key="word_timestamps" aria-label="Explain word timestamps setting">?</button>
+                </div>
+              </div>
+
+              <div id="diarization-fields" class="diarization-fields">
+                <div class="field-grid">
+                  <label class="field">
+                    <span class="field-label">
+                      <span>Exact speakers</span>
+                      <button type="button" class="help-button" data-help-key="num_speakers" aria-label="Explain exact speakers setting">?</button>
+                    </span>
+                    <input type="number" name="num_speakers" min="1" placeholder="Optional" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">
+                      <span>Minimum speakers</span>
+                      <button type="button" class="help-button" data-help-key="min_speakers" aria-label="Explain minimum speakers setting">?</button>
+                    </span>
+                    <input type="number" name="min_speakers" min="1" placeholder="Optional" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">
+                      <span>Maximum speakers</span>
+                      <button type="button" class="help-button" data-help-key="max_speakers" aria-label="Explain maximum speakers setting">?</button>
+                    </span>
+                    <input type="number" name="max_speakers" min="1" placeholder="Optional" />
+                  </label>
+                </div>
+                <div class="toggle-help">
+                  <label class="toggle">
+                    <input type="checkbox" name="diarization_exclusive" checked />
+                    <span>Use exclusive diarization for readable meeting transcripts</span>
+                  </label>
+                  <button type="button" class="help-button" data-help-key="diarization_exclusive" aria-label="Explain exclusive diarization setting">?</button>
+                </div>
+                <p class="form-note">
+                  Switch to Whisper Large v3 if you need translation to English or multilingual audio.
+                </p>
+              </div>
+            </div>
+          </details>
+
+          <div class="actions">
+            <button id="submit-button" type="submit">Run transcription</button>
+            <p id="form-note" class="form-note">
+              First use may take longer while a local model is prepared.
+            </p>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel reveal delay-3">
+        <div class="panel-header">
+          <div>
+            <p class="kicker">Output</p>
+            <h2>Job status</h2>
+          </div>
+        </div>
+        <div id="job-status" class="job-status empty">
+          Submit a file to start a transcription job.
+        </div>
+        <div id="downloads" class="downloads"></div>
+        <pre id="transcript-preview" class="transcript-preview"></pre>
+      </section>
+    </main>
+    <dialog id="help-dialog" class="help-dialog">
+      <div class="help-dialog-card">
+        <div class="help-dialog-header">
+          <h3 id="help-dialog-title">Setting help</h3>
+          <button type="button" id="help-dialog-close" class="help-dialog-close" aria-label="Close help dialog">Close</button>
+        </div>
+        <p id="help-dialog-body" class="help-dialog-body"></p>
+      </div>
+    </dialog>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
