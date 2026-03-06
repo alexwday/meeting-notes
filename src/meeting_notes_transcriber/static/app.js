@@ -170,6 +170,27 @@ function setBusy(isBusy) {
   submitButton.textContent = isBusy ? "Submitting..." : "Run transcription";
 }
 
+function renderUploadProgress(percent) {
+  const clampedPercent = Math.max(0, Math.min(100, Math.round(percent)));
+  downloads.innerHTML = "";
+  transcriptPreview.textContent = "";
+  jobStatus.className = "job-status running";
+  jobStatus.innerHTML = `
+    <div class="status-line">
+      <strong>UPLOADING</strong>
+      <span>Uploading file to the local app</span>
+    </div>
+    <div class="progress-stack">
+      <div class="progress-caption">
+        <span>${clampedPercent}% uploaded</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" style="width: ${clampedPercent}%"></div>
+      </div>
+    </div>
+  `;
+}
+
 function openHelpDialog(helpKey) {
   const help = HELP_CONTENT[helpKey];
   if (!help) {
@@ -289,6 +310,51 @@ async function pollJob(jobId) {
   }
 }
 
+function submitJobRequest(formData, onUploadProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/jobs");
+    xhr.responseType = "json";
+
+    xhr.upload.addEventListener("progress", (event) => {
+      if (!event.lengthComputable) {
+        return;
+      }
+      onUploadProgress((event.loaded / event.total) * 100);
+    });
+
+    xhr.addEventListener("load", () => {
+      const payload = xhr.response && typeof xhr.response === "object"
+        ? xhr.response
+        : safeParseJson(xhr.responseText);
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(payload);
+        return;
+      }
+
+      reject(new Error(payload?.detail || "Job submission failed."));
+    });
+
+    xhr.addEventListener("error", () => {
+      reject(new Error("Upload failed before the job could be queued."));
+    });
+
+    xhr.send(formData);
+  });
+}
+
+function safeParseJson(value) {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 modelSelect.addEventListener("change", () => {
   customModelField.hidden = modelSelect.value !== "custom";
   ensureTranslationCompatibleModel();
@@ -331,6 +397,7 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   setBusy(true);
   formNote.textContent = "Uploading file and queueing transcription job...";
+  renderUploadProgress(0);
 
   const formData = new FormData(form);
 
@@ -358,15 +425,10 @@ form.addEventListener("submit", async (event) => {
         : "Uploading file and starting the one-time diarization model download...";
     }
 
-    const response = await fetch("/api/jobs", {
-      method: "POST",
-      body: formData,
+    const payload = await submitJobRequest(formData, (progressPercent) => {
+      renderUploadProgress(progressPercent);
+      formNote.textContent = `Uploading file... ${Math.max(1, Math.min(100, Math.round(progressPercent)))}%`;
     });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.detail || "Job submission failed.");
-    }
 
     currentJobId = payload.job_id;
     renderJob(payload);

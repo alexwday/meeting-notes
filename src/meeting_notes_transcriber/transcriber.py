@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -331,14 +332,84 @@ class TranscriptionService:
             from faster_whisper import WhisperModel
 
             logger.info("Loading model '%s' on %s (%s).", model_reference, self._device, self._compute_type)
-            model = WhisperModel(
-                model_reference,
-                device=self._device,
-                compute_type=self._compute_type,
-                download_root=str(self._model_cache_root),
-            )
+            try:
+                model = self._instantiate_model(WhisperModel, model_reference)
+            except Exception as exc:
+                if self._repair_model_cache_and_retry(exc, model_reference, model_id):
+                    logger.warning("Retrying model load for '%s' after clearing its local download cache.", model_reference)
+                    try:
+                        model = self._instantiate_model(WhisperModel, model_reference)
+                    except Exception as retry_exc:
+                        raise RuntimeError(self._format_model_load_error(model_reference, retry_exc)) from retry_exc
+                else:
+                    raise RuntimeError(self._format_model_load_error(model_reference, exc)) from exc
             self._models[cache_key] = model
             return model
+
+    def _instantiate_model(self, whisper_model_cls: Any, model_reference: str) -> Any:
+        return whisper_model_cls(
+            model_reference,
+            device=self._device,
+            compute_type=self._compute_type,
+            download_root=str(self._model_cache_root),
+        )
+
+    def _repair_model_cache_and_retry(self, error: Exception, model_reference: str, model_id: str) -> bool:
+        if not self._is_retryable_model_cache_error(error):
+            return False
+
+        repo_id = self._resolve_remote_repo_id(model_reference, model_id)
+        if repo_id is None:
+            return False
+
+        self._clear_model_download_cache(repo_id)
+        return True
+
+    def _resolve_remote_repo_id(self, model_reference: str, model_id: str) -> str | None:
+        reference_path = Path(model_reference)
+        if reference_path.exists():
+            return None
+
+        if "/" in model_reference:
+            return model_reference
+
+        try:
+            from faster_whisper.utils import _MODELS  # type: ignore[attr-defined]
+        except Exception:
+            _MODELS = {}
+
+        return _MODELS.get(model_reference) or _MODELS.get(model_id)
+
+    def _clear_model_download_cache(self, repo_id: str) -> None:
+        cache_dir_name = f"models--{repo_id.replace('/', '--')}"
+        repo_cache_dir = self._model_cache_root / cache_dir_name
+        lock_dir = self._model_cache_root / ".locks" / cache_dir_name
+
+        if repo_cache_dir.exists():
+            shutil.rmtree(repo_cache_dir, ignore_errors=True)
+        if lock_dir.exists():
+            shutil.rmtree(lock_dir, ignore_errors=True)
+
+    @staticmethod
+    def _is_retryable_model_cache_error(error: Exception) -> bool:
+        message = str(error).lower()
+        return "snapshot folder" in message or "specified revision" in message
+
+    @staticmethod
+    def _format_model_load_error(model_reference: str, error: Exception) -> str:
+        message = str(error)
+        lowered = message.lower()
+        if "ssl" in lowered or "certificate" in lowered:
+            return (
+                f"Failed to download Whisper model '{model_reference}'. SSL validation failed while contacting "
+                "Hugging Face. Confirm the enterprise SSL environment is active and retry."
+            )
+        if "snapshot folder" in lowered or "specified revision" in lowered:
+            return (
+                f"Failed to load Whisper model '{model_reference}' because the local Hugging Face cache is incomplete. "
+                "The app attempted a cache repair. If the problem continues, delete .data/models and retry."
+            )
+        return f"Failed to load Whisper model '{model_reference}': {message}"
 
     def _resolve_model_reference(self, model_id: str, bundled_model_dir_name: str | None) -> str:
         bundled_model_path = self._resolve_bundled_model_path(bundled_model_dir_name)

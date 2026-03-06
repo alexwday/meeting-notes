@@ -101,6 +101,34 @@ class TranscriberFormattingTests(unittest.TestCase):
                 str(turbo_bundle),
             )
 
+    def test_transcription_service_clears_retryable_model_cache(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cache_root = root / ".data" / "models"
+            repo_cache = cache_root / "models--Systran--faster-distil-whisper-large-v3"
+            lock_cache = cache_root / ".locks" / "models--Systran--faster-distil-whisper-large-v3"
+            repo_cache.mkdir(parents=True)
+            lock_cache.mkdir(parents=True)
+
+            service = TranscriptionService(
+                cache_root,
+                bundled_models_root=root / "models",
+                device="cpu",
+                compute_type="int8",
+            )
+
+            retried = service._repair_model_cache_and_retry(
+                RuntimeError(
+                    "cannot find the appropriate snapshot folder for the specified revision on the local disk"
+                ),
+                "distil-large-v3",
+                "distil-large-v3",
+            )
+
+            self.assertTrue(retried)
+            self.assertFalse(repo_cache.exists())
+            self.assertFalse(lock_cache.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

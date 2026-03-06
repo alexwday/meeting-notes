@@ -119,6 +119,7 @@ class TranscriptionWorker:
                     },
                     outputs=outputs,
                 )
+                self._cleanup_source_file(task.source_path)
             except Exception as exc:
                 logger.exception("Job %s failed", task.job_id)
                 self._job_store.mark_failed(
@@ -128,6 +129,13 @@ class TranscriptionWorker:
                 )
             finally:
                 self._queue.task_done()
+
+    @staticmethod
+    def _cleanup_source_file(source_path: Path) -> None:
+        try:
+            source_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Failed to remove uploaded source file '%s' after job completion.", source_path)
 
 
 @dataclass(frozen=True)
@@ -327,6 +335,9 @@ async def create_job(
     except UnsupportedConfigurationError as exc:
         stored_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        stored_path.unlink(missing_ok=True)
+        raise
 
     job = services.job_store.create(
         job_id=job_id,
