@@ -129,6 +129,34 @@ class TranscriberFormattingTests(unittest.TestCase):
             self.assertFalse(repo_cache.exists())
             self.assertFalse(lock_cache.exists())
 
+    def test_transcription_service_treats_size_mismatch_as_retryable_cache_error(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cache_root = root / ".data" / "models"
+            repo_cache = cache_root / "models--Systran--faster-distil-whisper-large-v3"
+            lock_cache = cache_root / ".locks" / "models--Systran--faster-distil-whisper-large-v3"
+            repo_cache.mkdir(parents=True)
+            lock_cache.mkdir(parents=True)
+
+            service = TranscriptionService(
+                cache_root,
+                bundled_models_root=root / "models",
+                device="cpu",
+                compute_type="int8",
+            )
+
+            retried = service._repair_model_cache_and_retry(
+                RuntimeError(
+                    "Consistency check failed: file should be of size 1512927867 but has size 1402"
+                ),
+                "distil-large-v3",
+                "distil-large-v3",
+            )
+
+            self.assertTrue(retried)
+            self.assertFalse(repo_cache.exists())
+            self.assertFalse(lock_cache.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

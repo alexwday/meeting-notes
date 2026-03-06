@@ -393,7 +393,12 @@ class TranscriptionService:
     @staticmethod
     def _is_retryable_model_cache_error(error: Exception) -> bool:
         message = str(error).lower()
-        return "snapshot folder" in message or "specified revision" in message
+        return (
+            "snapshot folder" in message
+            or "specified revision" in message
+            or "consistency check failed" in message
+            or "file should be of size" in message
+        )
 
     @staticmethod
     def _format_model_load_error(model_reference: str, error: Exception) -> str:
@@ -404,10 +409,17 @@ class TranscriptionService:
                 f"Failed to download Whisper model '{model_reference}'. SSL validation failed while contacting "
                 "Hugging Face. Confirm the enterprise SSL environment is active and retry."
             )
-        if "snapshot folder" in lowered or "specified revision" in lowered:
+        if (
+            "snapshot folder" in lowered
+            or "specified revision" in lowered
+            or "consistency check failed" in lowered
+            or "file should be of size" in lowered
+        ):
             return (
-                f"Failed to load Whisper model '{model_reference}' because the local Hugging Face cache is incomplete. "
-                "The app attempted a cache repair. If the problem continues, delete .data/models and retry."
+                f"Failed to load Whisper model '{model_reference}' because the local Hugging Face download is incomplete "
+                "or corrupted. The app attempted a cache repair. If the problem continues, your network path may be "
+                "returning a small proxy/error response instead of the model file. Delete .data/models and retry after "
+                "confirming enterprise access to Hugging Face large file downloads."
             )
         return f"Failed to load Whisper model '{model_reference}': {message}"
 
