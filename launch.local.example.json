@@ -1,0 +1,10 @@
+{
+  "index_urls": [
+    "https://your-primary-package-index/simple",
+    "https://your-secondary-package-index/simple"
+  ],
+  "trusted_hosts": [
+    "your-primary-package-index",
+    "your-secondary-package-index"
+  ]
+}
